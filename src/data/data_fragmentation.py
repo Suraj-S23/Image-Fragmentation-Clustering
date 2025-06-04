@@ -16,16 +16,9 @@ from sklearn.model_selection import train_test_split
 from data import Imagenet64  
 
 
-# -------------------------------------------------------------------------------
-# 1) Setup TMPDIR cross-platform
-# -------------------------------------------------------------------------------
 tmpdir = tempfile.gettempdir()
 os.environ["TMPDIR"] = tmpdir  # Ensures Imagenet64 won’t crash if it needs a temp directory
 
-
-# -------------------------------------------------------------------------------
-# 2) Helper: fragment_images
-# -------------------------------------------------------------------------------
 def fragment_images(images: np.ndarray, grid_size: int) -> np.ndarray:
     """
     images: np.ndarray of shape (N, H, W, 3), where H = W and H % grid_size == 0.
@@ -45,12 +38,6 @@ def fragment_images(images: np.ndarray, grid_size: int) -> np.ndarray:
     patches = x.reshape(-1, patch_size, patch_size, C)
     return patches
 
-
-# -------------------------------------------------------------------------------
-# 3) Helper: process one split (train/val/test) in chunks
-#    Now *also* saves a positions_<split>.npy that records each patch’s original
-#    0..(grid_size^2 - 1) index before any shuffling.
-# -------------------------------------------------------------------------------
 def process_split(
     split_name: str,
     split_indices: np.ndarray,
@@ -65,8 +52,8 @@ def process_split(
     split_indices: 1D array of image‐indices (referring to rows in all_images)
     all_images: np.ndarray of shape (num_samples, 64, 64, 3)
     grid_size: how many patches along each axis
-    chunk_size_full: how many full images to fragment at once
-    output_dir: Path to a folder where we’ll write three .npy files:
+    chunk_size_full: how many full images to fragment at once - for memmory concerns
+    output_dir: Path to a folder where we write three .npy files:
         - fragments_<split>.npy
         - ids_<split>.npy
         - positions_<split>.npy
@@ -79,7 +66,7 @@ def process_split(
     num_images = len(split_indices)
     patch_per_image = grid_size * grid_size
     total_patches = num_images * patch_per_image
-    patch_size = all_images.shape[1] // grid_size  # e.g. 64//4=16
+    patch_size = all_images.shape[1] // grid_size  
 
     frag_shape = (total_patches, patch_size, patch_size, 3)
     id_shape = (total_patches,)
@@ -122,26 +109,25 @@ def process_split(
         chunk_inds = idx_array[start_img:end_img]
         chunk_images = all_images[chunk_inds]  # shape (n_chunk, 64, 64, 3)
 
-        # 1) Fragment this chunk → (n_chunk * patch_per_image, patch_h, patch_h, 3)
         patches = fragment_images(chunk_images, grid_size)
-        n_patches = patches.shape[0]  # should equal (end_img-start_img)*patch_per_image
+        n_patches = patches.shape[0]  # total num patches - should equal (end_img-start_img)*patch_per_image
 
-        # 2) Create local image‐IDs within this split
+        # Create local image‐IDs within this split
         local_ids = np.arange(start_img, end_img, dtype=np.int32)
         local_ids = np.repeat(local_ids, patch_per_image)
 
-        # 3) Create “position index” 0..(patch_per_image-1) for each patch of each image
-        #    So each image in [start_img..end_img) contributes [0,1,2,…,patch_per_image-1].
-        single_positions = np.arange(patch_per_image, dtype=np.int32)  # [0..15] for a 4×4 grid
+        # Create “position index” 0..(patch_per_image-1) for each patch of each image
+        #     So each image in [start_img..end_img) contributes [0,1,2,…,patch_per_image-1].
+        single_positions = np.arange(patch_per_image, dtype=np.int32)  # [0..15] for a 4×4 grid (16 patches)
         local_positions = np.tile(single_positions, end_img - start_img)
 
-        # 4) Shuffle patches, local_ids, local_positions in lockstep
+        # Shuffle patches, local_ids, local_positions in lockstep to not lose alignment
         perm = rng.permutation(n_patches)
         patches = patches[perm]
         local_ids = local_ids[perm]
         local_positions = local_positions[perm]
 
-        # 5) Write them into the memmaps at [offset : offset + n_patches]
+        # Write them into the memmaps at [offset : offset + n_patches]
         fragments_mmap[offset : offset + n_patches, :, :, :] = patches
         ids_mmap[offset : offset + n_patches] = local_ids
         positions_mmap[offset : offset + n_patches] = local_positions
@@ -152,12 +138,12 @@ def process_split(
             f"patches {offset-n_patches}:{offset}"
         )
 
-    # 6) Full‐split shuffle
+    # Full‐split shuffle
     logging.info(f"[{split_name}] Performing full‐split shuffle of {total_patches} patches")
     idx_full = np.arange(total_patches)
     rng.shuffle(idx_full)
 
-    fragments_all = fragments_mmap[:]   # read entire array
+    fragments_all = fragments_mmap[:]  
     ids_all = ids_mmap[:]
     positions_all = positions_mmap[:]
 
@@ -175,10 +161,6 @@ def process_split(
     del fragments_all, ids_all, positions_all
     gc.collect()
 
-
-# -------------------------------------------------------------------------------
-# 4) Argument parsing with config support
-# -------------------------------------------------------------------------------
 def parse_args():
     parser = argparse.ArgumentParser(
         description="Fragment a set of Imagenet64 images into (G×G) patches "
@@ -216,7 +198,7 @@ def parse_args():
     # Determine script directory
     script_dir = Path(__file__).resolve().parent
 
-    # If no --config given, look for config.yaml or config.json in script directory
+    # If no --config is passed, look for config.yaml or config.json in script directory
     if args.config is None:
         yaml_path = script_dir / "config.yaml"
         json_path = script_dir / "config.json"
@@ -255,10 +237,6 @@ def parse_args():
 
     return args
 
-
-# -------------------------------------------------------------------------------
-# 5) Visualization helpers (unchanged)
-# -------------------------------------------------------------------------------
 def save_visual_confirmation(full_images: np.ndarray, grid_size: int, save_dir: Path):
     """
     Creates three figures:
@@ -277,7 +255,7 @@ def save_visual_confirmation(full_images: np.ndarray, grid_size: int, save_dir: 
         n = 4
     sample_imgs = full_images[:n]  # shape (n, 64, 64, 3)
 
-    # 1) Plot original images with grid overlay
+    # Plot original images with grid overlay
     fig1, axs1 = plt.subplots(1, n, figsize=(3 * n, 3))
     for i in range(n):
         img = sample_imgs[i]
@@ -294,7 +272,7 @@ def save_visual_confirmation(full_images: np.ndarray, grid_size: int, save_dir: 
     fig1.savefig(fig1_path, bbox_inches="tight")
     plt.close(fig1)
 
-    # 2) Fragment the first image and plot its fragments
+    # Fragment the first image and plot its fragments
     first_img = sample_imgs[:1]  # shape (1, 64, 64, 3)
     patches_img0 = fragment_images(first_img, grid_size)  # shape (grid_size^2, patch_h, patch_h, 3)
     fig2, axs2 = plt.subplots(grid_size, grid_size, figsize=(grid_size, grid_size))
@@ -309,7 +287,7 @@ def save_visual_confirmation(full_images: np.ndarray, grid_size: int, save_dir: 
     fig2.savefig(fig2_path, bbox_inches="tight")
     plt.close(fig2)
 
-    # 3) Take fragments from all n images, shuffle, show random G^2 patches
+    # Take fragments from all n images, shuffle, show random G^2 patches
     all_patches = fragment_images(sample_imgs, grid_size)  # shape (n * grid_size^2, patch_h, patch_h, 3)
     total_patches = all_patches.shape[0]
     num_to_show = min(grid_size * grid_size, total_patches)
@@ -330,10 +308,6 @@ def save_visual_confirmation(full_images: np.ndarray, grid_size: int, save_dir: 
     fig3.savefig(fig3_path, bbox_inches="tight")
     plt.close(fig3)
 
-
-# -------------------------------------------------------------------------------
-# 6) Main: put everything together with memory-safe loading and visualization
-# -------------------------------------------------------------------------------
 def main():
     args = parse_args()
 
@@ -347,7 +321,7 @@ def main():
 
     np.random.seed(args.seed)
 
-    # 1) Memory-safe loading: temporarily patch os.listdir so Imagenet64 sees only one batch
+    # Memory-safe loading: temporarily patch os.listdir so Imagenet64 sees only one batch - memory concerns
     logging.info(f"Safely loading up to {args.num_samples} images from a single batch in {args.data_dir} (seed={args.seed})")
     original_listdir = os.listdir
     os.listdir = lambda path: ["train_data_batch_1"] if "train_data" in str(path) else original_listdir(path)
@@ -363,18 +337,18 @@ def main():
 
     logging.info(f"Safely loaded {full_images.shape[0]} images. (dtype={full_images.dtype}, range=[{full_images.min():.3f},{full_images.max():.3f}])")
 
-    # 2) Create output subfolder (with key params in name)
+    # Create output subfolder (with key params in name)
     run_name = f"fragments_g{args.grid_size}_n{args.num_samples}_s{args.seed}"
     run_out = args.output_dir / run_name
     run_out.mkdir(parents=True, exist_ok=True)
     logging.info(f"Saving everything into output folder: {run_out}")
 
-    # 3) Visualization confirmation
+    # Visualization confirmation
     vis_dir = run_out / "frag_confirmation"
     logging.info(f"Generating visual confirmation in {vis_dir}")
     save_visual_confirmation(full_images, args.grid_size, vis_dir)
 
-    # 4) Split into train/val/test by image index
+    # Split into train/val/test by image index
     all_indices = np.arange(full_images.shape[0])
     trainval_idx, test_idx = train_test_split(
         all_indices, test_size=args.test_size, random_state=args.seed
@@ -384,7 +358,7 @@ def main():
     )
     logging.info(f"Split sizes (in #images): train={len(train_idx)}, val={len(val_idx)}, test={len(test_idx)}")
 
-    # 5) Process each split
+    # Process each split
     for split_name, idxs in [("train", train_idx), ("val", val_idx), ("test", test_idx)]:
         process_split(
             split_name=split_name,
