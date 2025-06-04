@@ -62,17 +62,17 @@ def main(config_path):
     device = "cuda" if cfg["trainer"]["gpus"] > 0 and torch.cuda.is_available() else "cpu"
     pl.seed_everything(42)
 
-    # 1) DataModule (validation only)
+    # DataModule (validation only)
     data_module = ContrastiveFragmentDataModule(cfg)
     data_module.setup()
 
-    # 2) Load checkpoint
+    # Load checkpoint
     checkpoint_dir = cfg["checkpoint"]["dirpath"]
     ckpt_path = os.path.join(checkpoint_dir, os.listdir(checkpoint_dir)[0])
     model = ContrastiveFragmentModel.load_from_checkpoint(ckpt_path, hparams=cfg)
     model.eval().to(device)
 
-    # 3) Contrastive clustering on validation
+    # Contrastive clustering on validation
     raw_val_ids, pred_val_clusters, _ = reconstruct_groups(
         model.encoder, data_module.val_dataloader(), cfg
     )
@@ -81,7 +81,7 @@ def main(config_path):
     print(f"ARI    : {ari_val:.4f}")
     print(f"Purity : {purity_val:.4f}")
 
-    # 4) Optional: histogram fallback
+    # Optional: histogram fallback
     if cfg["eval"].get("use_histogram_fallback", False):
         true_ids_hist, pred_hist = histogram_fallback(cfg["data"]["fragments_dir"], cfg)
         ari_hist, purity_hist = compute_cluster_metrics(true_ids_hist, pred_hist)
