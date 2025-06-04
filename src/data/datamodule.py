@@ -40,7 +40,7 @@ class ContrastiveFragmentDataset(Dataset):
         # Build a mapping: image_id → list of exactly 16 patch‐indices
         self.idx_to_patch_indices = []
         for i in range(self.num_images):
-            mask = np.where(self.ids == i)[0]  # array of length 16
+            mask = np.where(self.ids == i)[0]  # length 16
             assert len(mask) == 16, f"Expected exactly 16 fragments for image {i}, but got {len(mask)}"
             self.idx_to_patch_indices.append(mask)
 
@@ -142,7 +142,7 @@ class ContrastiveFragmentDataModule(pl.LightningDataModule):
         return DataLoader(
             self.val_dataset,
             batch_size=self.batch_size,
-            shuffle=False,    # Important: no shuffling for val/test
+            shuffle=False,    
             num_workers=self.num_workers,
             pin_memory=True,
         )
@@ -151,7 +151,7 @@ class ContrastiveFragmentDataModule(pl.LightningDataModule):
         return DataLoader(
             self.test_dataset,
             batch_size=self.batch_size,
-            shuffle=False,    # Important: no shuffling for val/test
+            shuffle=False,    
             num_workers=self.num_workers,
             pin_memory=True,
         )
