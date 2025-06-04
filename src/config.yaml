@@ -20,11 +20,11 @@ model:
   embed_dim: 128         # dimensionality of the patch embedding
   lr: 0.0005             # learning rate for the Adam optimizer
   temperature: 0.5      # temperature τ for InfoNCE
-  jigsaw_loss_weight: 5.0  # weight for the Jigsaw loss
+  jigsaw_loss_weight: 5.0  # weight for the Jigsaw loss (kept high to force convergence on it)
 
 trainer:
-  max_epochs: 30        # train for up to 30 epochs
-  gpus: 0               # set to 1 if you have a GPU, else 0
+  max_epochs: 30        
+  gpus: 0               # 0 for CPU
   precision: 32         # 32-bit floating point
 
 datamodule:
@@ -35,7 +35,7 @@ datamodule:
 # Checkpoint & Logging
 # ----------------------------------------
 checkpoint:
-  monitor: "val/total_loss"    # we’ll simply monitor val_loss
+  monitor: "val/total_loss"    
   mode: "min"
   save_top_k: 1
   dirpath: "lightning_logs/contrastive_model"
