@@ -8,7 +8,7 @@ from torchmetrics import MeanMetric
 class ResBlock(nn.Module):
     """
     A single 2‐layer residual block for 16×16 patches → embed_dim features.
-    We'll stack two such blocks for a lightweight encoder.
+    2 blocks build a lightweight encoder
     """
     def __init__(self, in_channels, out_channels, stride=1):
         super().__init__()
@@ -72,12 +72,12 @@ class ContrastiveFragmentModel(pl.LightningModule):
         self.save_hyperparameters(hparams)
 
         cfg_model = self.hparams["model"]
-        D = cfg_model["embed_dim"]  # e.g. 64
+        D = cfg_model["embed_dim"]  
 
-        # 1) Patch encoder
+        # Patch encoder
         self.encoder = PatchEncoder(embed_dim=D)
 
-        # 2) Slot‐prediction head: three‐layer MLP → 16 logits (more capacity)
+        # Slot‐prediction head: three‐layer MLP → 16 logits (more capacity)
         self.pos_head = nn.Sequential(
             nn.Linear(D, D),           # 64 → 64
             nn.ReLU(inplace=True),
@@ -129,20 +129,20 @@ class ContrastiveFragmentModel(pl.LightningModule):
         P, D = embeddings.shape
         tau = self.temperature
 
-        # 1) Cosine similarity matrix: (P,P)
+        # Cosine similarity matrix: (P,P)
         sim_matrix = torch.matmul(embeddings, embeddings.T) / tau  # (P,P)
         exp_sim = torch.exp(sim_matrix)
 
-        # 2) positive mask (image_ids[i] == image_ids[j]) minus self‐pairs
+        # positive mask (image_ids[i] == image_ids[j]) minus self‐pairs
         eye = torch.eye(P, device=embeddings.device).bool()
         img_eq = image_ids.unsqueeze(1) == image_ids.unsqueeze(0)
         same_mask = img_eq & (~eye)       # (P,P)
 
-        # 3) Compute numerator & denominator
+        # Compute numerator & denominator
         numerator = (exp_sim * same_mask.float()).sum(dim=1)
         denom = exp_sim.sum(dim=1) - exp_sim.diagonal()
 
-        # 4) Avoid log(0)
+        # Avoid log(0)
         eps = 1e-8
         numerator = torch.clamp(numerator, min=eps)
         denom = torch.clamp(denom, min=eps)
@@ -150,6 +150,7 @@ class ContrastiveFragmentModel(pl.LightningModule):
         loss = -torch.log(numerator / denom).mean()
         return loss
 
+    # Shared step for train/val
     def _shared_step(self, batch, batch_idx, stage: str):
         """
         batch = (patches, positions, image_ids)
@@ -158,35 +159,35 @@ class ContrastiveFragmentModel(pl.LightningModule):
         image_ids: (B,)
         """
         patches, positions, image_ids = batch
-        B, P, C, H, W = patches.shape       # P should be 16
+        B, P, C, H, W = patches.shape       # P should be 16 (patches)
         device = patches.device
 
-        # 1) Flatten patches for the encoder
+        # Flatten patches for the encoder
         patches_flat = patches.view(B * P, C, H, W)  # (B*P, 3,16,16)
 
-        # 2) Compute embeddings
+        # Compute embeddings
         embeds = self.encoder(patches_flat)  # (B*P, D)
 
-        # 3) Slot‐CE loss
+        # Slot‐CE loss
         positions_flat = positions.view(-1).to(device)  # (B*P,)
         slot_logits    = self.pos_head(embeds)           # (B*P, num_slots)
         loss_slot      = self.pos_loss_fxn(slot_logits, positions_flat)
 
-        # 4) InfoNCE (contrastive) loss
+        # InfoNCE (contrastive) loss
         image_ids_flat = image_ids.unsqueeze(1).repeat(1, P).view(-1).to(device)  # (B*P,)
 
-        # 4a) Build normalized cosine‐similarity matrix
+        # Normalized cosine‐similarity matrix
         embeds_norm = F.normalize(embeds, dim=1)                 # (B*P, D)
         sims = torch.matmul(embeds_norm, embeds_norm.t()) / self.temperature  # (B*P, B*P)
         exp_sims = torch.exp(sims)
 
-        # 4b) Build “same‐image but not self” mask
+        # Build “same‐image but not self” mask
         eye      = torch.eye(B * P, device=device).bool()
         img_eq   = (image_ids_flat.unsqueeze(1) == image_ids_flat.unsqueeze(0))
         mask_pos = img_eq & (~eye)         # True where same image, i != j
         mask_neg = (~eye)                  # True everywhere except diagonal
 
-        # 4c) Compute numerator & denominator
+        # Compute numerator & denominator
         numerator = (exp_sims * mask_pos.float()).sum(dim=1)          # (B*P,)
         denom     = exp_sims.sum(dim=1) - exp_sims.diagonal()         # (B*P,)
 
@@ -196,10 +197,10 @@ class ContrastiveFragmentModel(pl.LightningModule):
 
         loss_infonce = -torch.log(numerator / denom).mean()
 
-        # 5) Total loss
-        total_loss = loss_infonce + self.jigsaw_weight * loss_slot
+        # Total loss
+        total_loss = loss_infonce + self.jigsaw_weight * loss_slot # jigsaw weight still selected by trial-and-error
 
-        # 6) Update MeanMetric trackers
+        # Update MeanMetric trackers
         if stage == "train":
             self.train_loss_infonce.update(loss_infonce)
             self.train_loss_slot.update(loss_slot)
@@ -209,7 +210,7 @@ class ContrastiveFragmentModel(pl.LightningModule):
             self.val_loss_slot.update(loss_slot)
             self.val_loss_total.update(total_loss)
 
-        # 7) Compute & store per‐batch avg pos/neg sims for epoch logging
+        # Compute & store per‐batch avg pos/neg sims for epoch logging
         avg_pos = (sims * mask_pos.float()).sum() / mask_pos.float().sum()
         avg_neg = (sims * mask_neg.float()).sum() / mask_neg.float().sum()
 
@@ -226,28 +227,21 @@ class ContrastiveFragmentModel(pl.LightningModule):
             self._epoch_val_pos_sims.append(avg_pos.detach().cpu())
             self._epoch_val_neg_sims.append(avg_neg.detach().cpu())
 
-        # 8) Log to TensorBoard/CSV via Lightning
+        # Log to TensorBoard/CSV via Lightning
         self.log(f"{stage}/infonce",    loss_infonce, prog_bar=(stage=="train"), on_epoch=True)
         self.log(f"{stage}/slot_ce",    loss_slot,    prog_bar=(stage=="train"), on_epoch=True)
         self.log(f"{stage}/total_loss", total_loss,   prog_bar=(stage=="train"), on_epoch=True)
 
         return total_loss
-
-
-    # ----------------------------------------------------------
-    # Training step: calls shared step with stage="train"
-    # ----------------------------------------------------------
+        
     def training_step(self, batch, batch_idx):
         return self._shared_step(batch, batch_idx, stage="train")
 
-    # ----------------------------------------------------------
-    # Validation step: calls shared step with stage="val"
-    # ----------------------------------------------------------
     def validation_step(self, batch, batch_idx):
         return self._shared_step(batch, batch_idx, stage="val")
 
     def on_train_epoch_end(self):
-        # Compute epoch‐level pos/neg sim for train
+        # Epoch‐level pos/neg sim computation for train
         if hasattr(self, "_epoch_train_pos_sims"):
             epos = float(torch.tensor(self._epoch_train_pos_sims).mean())
             eneg = float(torch.tensor(self._epoch_train_neg_sims).mean())
@@ -281,7 +275,6 @@ class ContrastiveFragmentModel(pl.LightningModule):
         self.val_loss_total.reset()
 
     def test_step(self, batch, batch_idx):
-        # Just call your shared logic
         return self._shared_step(batch, batch_idx, stage="test")
 
     def configure_optimizers(self):
