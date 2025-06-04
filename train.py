@@ -14,9 +14,6 @@ THIS_DIR = os.path.dirname(__file__)
 PROJECT_ROOT = os.path.abspath(os.path.join(THIS_DIR, os.pardir))
 sys.path.insert(0, PROJECT_ROOT)
 
-# ────────────────────────────────────────────────────────────────────────────────
-# train.py
-# ────────────────────────────────────────────────────────────────────────────────
 
 import numpy as np
 import random
@@ -28,9 +25,6 @@ from src.data.datamodule import ContrastiveFragmentDataModule
 from sklearn.cluster import KMeans
 from sklearn.metrics import adjusted_rand_score
 
-# ────────────────────────────────────────────────────────────────────────────────
-# (A) Helpers for clustering metrics (unchanged from original)                   ──
-# ────────────────────────────────────────────────────────────────────────────────
 def compute_cluster_metrics(true_ids: np.ndarray, pred_ids: np.ndarray):
     """
     Compute ARI and Purity over all patches in test set.
@@ -53,10 +47,6 @@ def compute_cluster_metrics(true_ids: np.ndarray, pred_ids: np.ndarray):
     purity = total_correct / N
     return ari, purity
 
-
-# ────────────────────────────────────────────────────────────────────────────────
-# (B) reconstruct_groups (unchanged from your original)                           ──
-# ────────────────────────────────────────────────────────────────────────────────
 def reconstruct_groups(encoder, loader, split: str, cfg):
     """
     encoder:      the PatchEncoder module
@@ -76,9 +66,9 @@ def reconstruct_groups(encoder, loader, split: str, cfg):
     all_embeddings = []
     with torch.no_grad():
         for batch in loader:
-            # Now each batch is (patches, positions, image_ids)
+            # Each batch is (patches, positions, image_ids)
             patches, _, _ = batch
-            B = patches.shape[0]     # number of images in this minibatch
+            B = patches.shape[0]     # number of images in minibatch
             P = B * 16               # 16 patches per image
             patches_flat = patches.view(P, 3, 16, 16).to(device)
             embeds = encoder(patches_flat)    # shape: (P, D)
@@ -102,9 +92,6 @@ def reconstruct_groups(encoder, loader, split: str, cfg):
 
     return true_ids, kmeans.labels_, all_embeds_np
 
-# ────────────────────────────────────────────────────────────────────────────────
-# (C) Visualization (fixed so “Original” is assembled from ground‐truth ids/positions)
-# ────────────────────────────────────────────────────────────────────────────────
 def visualize_clusters_after_test(cfg, num_samples: int = 3):
     """
     1) Build val DataLoader, find & load best .ckpt, run reconstruct_groups on val.
@@ -114,12 +101,12 @@ def visualize_clusters_after_test(cfg, num_samples: int = 3):
 
     device = "cuda" if cfg["trainer"]["gpus"] > 0 and torch.cuda.is_available() else "cpu"
 
-    # A) Prepare validation DataLoader
+    # Prepare validation DataLoader
     data_module = ContrastiveFragmentDataModule(cfg)
     data_module.setup()
     val_loader = data_module.val_dataloader()
 
-    # B) Recursively find the latest .ckpt under lightning_logs/contrastive_model/*/checkpoints/
+    # Recursively find the latest .ckpt under lightning_logs/contrastive_model/*/checkpoints/
     checkpoint_dir = cfg["checkpoint"]["dirpath"]
     all_ckpts = []
     for root, _, files in os.walk(checkpoint_dir):
@@ -131,13 +118,12 @@ def visualize_clusters_after_test(cfg, num_samples: int = 3):
     ckpt_path = max(all_ckpts, key=os.path.getmtime)
     print(f"→ Loading checkpoint: {ckpt_path}")
 
-    # C) Load model and switch to eval
+    # Load model and switch to eval
     model = ContrastiveFragmentModel.load_from_checkpoint(ckpt_path, hparams=cfg)
     model = model.to(device)
     model.eval()
 
     # D) Run reconstruct_groups on validation to get (raw_val_ids, pred_val_clusters, _)
-    #    Note: pass split="val" and cfg=cfg, as the function now expects four arguments
     raw_val_ids, pred_val_clusters, _ = reconstruct_groups(
         model.encoder,
         val_loader,
@@ -145,13 +131,13 @@ def visualize_clusters_after_test(cfg, num_samples: int = 3):
         cfg=cfg
     )
 
-    # E) Load ground‐truth fragments, IDs, positions from disk
+    # Load ground‐truth fragments, IDs, positions from disk
     data_dir  = cfg["data"]["fragments_dir"]
     val_frags = np.load(os.path.join(data_dir, cfg["data"]["val_fragments"]))   # (M_val, 16,16,3)
     val_ids   = np.load(os.path.join(data_dir, cfg["data"]["val_ids"]))         # (M_val,)
     val_pos   = np.load(os.path.join(data_dir, cfg["data"]["val_positions"]))   # (M_val,)
 
-    # F) Sample some ground‐truth image IDs
+    # Sample some ground‐truth image IDs
     unique_gt_ids   = np.unique(val_ids)
     sampled_images = random.sample(list(unique_gt_ids), min(num_samples, len(unique_gt_ids)))
     os.makedirs("viz_clusters", exist_ok=True)
@@ -283,10 +269,6 @@ def plot_loss_curves(model):
     plt.savefig("loss_curves_components.png", dpi=150)
     plt.close()
 
-
-# ────────────────────────────────────────────────────────────────────────────────
-# (5) main: training, test ARI/Purity, plot loss curves, then visualize clusters ──
-# ────────────────────────────────────────────────────────────────────────────────
 def main(config_path: str):
     # 1) Load config
     with open(config_path, "r") as f:
@@ -329,10 +311,6 @@ def main(config_path: str):
     # 5) Fit
     trainer.fit(model, data_module.train_dataloader(), data_module.val_dataloader())
 
-    # ─── Restoring Loss‐Curve Plots ────────────────────────────────────────────
-    # By this point, the LightningModule has filled its epoch‐lists:
-    #   model.train_loss_infonce_epochs, model.train_loss_slot_epochs, model.train_loss_total_epochs,
-    #   model.val_loss_infonce_epochs, model.val_loss_slot_epochs, model.val_loss_total_epochs.
     print("\n=== Generating loss curves ===")
     plot_loss_curves(model)
     print("Saved loss_curves_total.png and loss_curves_components.png\n")
