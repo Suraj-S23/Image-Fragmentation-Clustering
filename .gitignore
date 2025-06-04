@@ -1,3 +1,4 @@
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -172,3 +173,20 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Data & large npy files (you may store data elsewhere)
+viz_clusters/
+
+# Checkpoints & logs
+lightning_logs/
+*.ckpt
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# old work
+imp2/
+fragmentation_output/
+frgamentation_split/
+fragmented_data/
+frenv
